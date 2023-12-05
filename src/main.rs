@@ -6,8 +6,11 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
+use std::time::Instant;
 
 fn main() -> io::Result<()> {
+    let start_time = Instant::now();
+
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
         eprintln!("Usage: {} <barcode_file> <fastq_folder> [output_folder]", args[0]);
@@ -73,11 +76,15 @@ fn main() -> io::Result<()> {
         }
     }
 
-    println!("\nSorting complete. Summary:");
+    let duration = start_time.elapsed();
+
+    println!("Sorting complete. Time taken: {:?}", duration);
+    println!("Total number of reads: {}", total_count);
+    println!("Summary:");
     for (barcode, count) in count_map.iter() {
         let percentage = (*count as f64) / (total_count as f64) * 100.0;
         println!("{}: {:.2}% ({} reads)", barcode, percentage, count);
-    }
+}
 
-    Ok(())
+Ok(())  
 }
