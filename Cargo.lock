@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "deepsort-rs"
+name = "deepsort"
 version = "0.1.0"
 dependencies = [
  "flate2",

@@ -1,7 +1,9 @@
-use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+use flate2::read::MultiGzDecoder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use std::collections::HashMap;
 use std::env;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
@@ -16,10 +18,8 @@ fn main() -> io::Result<()> {
     let fastq_folder = &args[2];
     let output_folder = args.get(3).map(|s| s.as_str()).unwrap_or(".");
 
-    // Create a HashMap for barcode mapping
     let mut barcode_map: HashMap<String, String> = HashMap::new();
 
-    // Read the barcode file and populate the barcode_map
     let barcode_reader = BufReader::new(File::open(barcode_file)?);
     for line in barcode_reader.lines().skip(1) {
         let line = line?;
@@ -29,7 +29,10 @@ fn main() -> io::Result<()> {
         }
     }
 
-    // Process each gzipped FASTQ file in the provided folder
+    let mut file_encoders: HashMap<String, GzEncoder<File>> = HashMap::new();
+    let mut count_map: HashMap<String, usize> = HashMap::new();
+    let mut total_count = 0;
+
     for entry in fs::read_dir(Path::new(fastq_folder))? {
         let entry = entry?;
         let path = entry.path();
@@ -37,10 +40,11 @@ fn main() -> io::Result<()> {
             println!("Processing {}", path.display());
 
             let file = File::open(&path)?;
-            let decoder = GzDecoder::new(file);
+            let decoder = MultiGzDecoder::new(file);
             let reader = BufReader::new(decoder);
 
             for chunk in reader.lines().collect::<Result<Vec<_>, _>>()?.chunks_exact(4) {
+                total_count += 1;
                 let header = &chunk[0];
                 let seq = &chunk[1];
                 let plus = &chunk[2];
@@ -50,12 +54,30 @@ fn main() -> io::Result<()> {
                 let barcode = barcode_map.get(read_id).map(|s| s.as_str()).unwrap_or_else(|| "unknown");
 
                 let output_path = Path::new(output_folder).join(format!("{}.fastq.gz", barcode));
-                let mut encoder = GzEncoder::new(File::create(output_path)?, Compression::default());
+
+                let encoder = file_encoders.entry(barcode.to_string())
+                    .or_insert_with(|| {
+                        GzEncoder::new(
+                            OpenOptions::new()
+                                .create(true)
+                                .write(true)
+                                .truncate(true)
+                                .open(&output_path)
+                                .expect("Failed to open output file"),
+                            Compression::default())
+                    });
+
+                *count_map.entry(barcode.to_string()).or_insert(0) += 1;
                 writeln!(encoder, "{}\n{}\n{}\n{}", header, seq, plus, qual)?;
             }
         }
     }
 
-    println!("Sorting complete.");
+    println!("\nSorting complete. Summary:");
+    for (barcode, count) in count_map.iter() {
+        let percentage = (*count as f64) / (total_count as f64) * 100.0;
+        println!("{}: {:.2}% ({} reads)", barcode, percentage, count);
+    }
+
     Ok(())
 }
